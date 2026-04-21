@@ -1,0 +1,20 @@
+{
+    "default_download_path": "./downloads",
+    "max_concurrent_downloads": 3,
+    "theme": "dark",
+    "filename_template": "%(title)s.%(ext)s",
+    "max_retries": 3,
+    "socket_timeout": 30,
+    "profiles": {
+        "default": {
+            "name": "По умолчанию",
+            "format": "best",
+            "quality": "best",
+            "use_cookies": false,
+            "write_subs": false,
+            "sub_lang": "ru",
+            "embed_thumbnail": false,
+            "write_metadata": true
+        }
+    }
+}
