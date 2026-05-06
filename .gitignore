@@ -25,3 +25,14 @@ Desktop.ini
 
 # App data (downloads created at runtime)
 downloads/
+
+# FFmpeg binaries
+ffmpeg.exe
+ffmpeg
+ffprobe.exe
+ffprobe
+ffplay.exe
+ffplay
+
+# Cookies
+cookies.txt

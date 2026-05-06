@@ -10,6 +10,7 @@ from core.config_manager import ConfigManager
 from core.queue_manager import DownloadQueue, DownloadItem
 from core.downloader import YTDLPDownloader
 from core.firefox_cookies import check_firefox_cookies_available
+from utils.helpers import find_ffmpeg
 
 
 class DownloadTab:
@@ -90,6 +91,26 @@ class DownloadTab:
         if not cookies_available:
             self.cookies_check.configure(state="disabled")
 
+        ctk.CTkLabel(right_col, text="Файл cookies:", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
+        cookies_file_frame = ctk.CTkFrame(right_col, fg_color="transparent")
+        cookies_file_frame.pack(fill="x", pady=(0, 5))
+
+        self.cookies_file_entry = ctk.CTkEntry(cookies_file_frame, placeholder_text="cookies.txt")
+        self.cookies_file_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+        ctk.CTkButton(cookies_file_frame, text="Обзор", command=self.browse_cookies_file, width=70).pack(side="right")
+
+        saved_cookies = self.config_manager.get('last_cookies_file', '')
+        if saved_cookies and os.path.isfile(saved_cookies):
+            self.cookies_file_entry.insert(0, saved_cookies)
+        else:
+            root_cookies = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'cookies.txt')
+            if os.path.isfile(root_cookies):
+                self.cookies_file_entry.insert(0, root_cookies)
+
+        self.cookies_file_entry.bind("<FocusOut>", self._save_cookies_file_path)
+        self.cookies_file_entry.bind("<Return>", self._save_cookies_file_path)
+
         self.advanced_frame = ctk.CTkFrame(main_frame)
         self.advanced_frame.pack(fill="x", pady=(0, 10))
 
@@ -156,6 +177,9 @@ class DownloadTab:
             'bestaudio': 'Лучшее аудио',
             'bestvideo+bestaudio/best': 'Лучшее видео',
             'bestaudio/best': 'Лучшее аудио',
+            'bestvideo[height<=1080]+bestaudio/best[height<=1080]': '1080p',
+            'bestvideo[height<=720]+bestaudio/best[height<=720]': '720p',
+            'bestvideo[height<=480]+bestaudio/best[height<=480]': '480p',
         }
         self.format_combo.set(format_map.get(profile.get('format', 'best'), 'Лучшее видео'))
         self.use_cookies_var.set(profile.get('use_cookies', False))
@@ -176,6 +200,20 @@ class DownloadTab:
         if folder:
             self.path_entry.delete(0, 'end')
             self.path_entry.insert(0, folder)
+
+    def browse_cookies_file(self):
+        filepath = filedialog.askopenfilename(
+            title="Выберите файл cookies",
+            filetypes=[("Текстовые файлы", "*.txt"), ("Все файлы", "*.*")]
+        )
+        if filepath:
+            self.cookies_file_entry.delete(0, 'end')
+            self.cookies_file_entry.insert(0, filepath)
+            self.config_manager.set('last_cookies_file', filepath)
+
+    def _save_cookies_file_path(self, event=None):
+        path = self.cookies_file_entry.get().strip()
+        self.config_manager.set('last_cookies_file', path)
 
     def paste_url(self, event=None):
         """Обработка вставки URL независимо от раскладки клавиатуры"""
@@ -207,7 +245,8 @@ class DownloadTab:
 
         def fetch_info():
             try:
-                info = self.downloader.get_video_info(url, self.use_cookies_var.get())
+                cookies_file = self.cookies_file_entry.get().strip() or None
+                info = self.downloader.get_video_info(url, self.use_cookies_var.get(), cookies_file)
                 self.current_video_info = info
                 self.parent.after(0, lambda: self.display_preview(info))
             except Exception as e:
@@ -238,11 +277,11 @@ class DownloadTab:
 
     def get_download_options(self):
         format_map = {
-            'Лучшее видео': 'best',
-            'Лучшее аудио': 'bestaudio',
-            '1080p': 'best[height<=1080]',
-            '720p': 'best[height<=720]',
-            '480p': 'best[height<=480]',
+            'Лучшее видео': 'bestvideo+bestaudio/best',
+            'Лучшее аудио': 'bestaudio/best',
+            '1080p': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
+            '720p': 'bestvideo[height<=720]+bestaudio/best[height<=720]',
+            '480p': 'bestvideo[height<=480]+bestaudio/best[height<=480]',
         }
 
         download_path = self.path_entry.get().strip()
@@ -252,10 +291,18 @@ class DownloadTab:
         filename_template = self.config_manager.get('filename_template', '%(title)s.%(ext)s')
         output_path = os.path.join(download_path, filename_template)
 
+        cookies_file = self.cookies_file_entry.get().strip() or None
+        ffmpeg_location = find_ffmpeg(self.config_manager.get('ffmpeg_location', ''))
+        selected_format = self.format_combo.get()
+        extract_audio = selected_format == 'Лучшее аудио'
+
         return {
-            'format': format_map.get(self.format_combo.get(), 'best'),
+            'format': format_map.get(selected_format, 'bestvideo+bestaudio/best'),
             'output_path': output_path,
             'use_cookies': self.use_cookies_var.get(),
+            'cookies_file': cookies_file,
+            'ffmpeg_location': ffmpeg_location,
+            'extract_audio': extract_audio,
             'write_subs': self.write_subs_var.get(),
             'sub_lang': self.sub_lang_entry.get() or 'ru',
             'embed_thumbnail': self.embed_thumbnail_var.get(),

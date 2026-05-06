@@ -1,7 +1,9 @@
+import os
 import customtkinter as ctk
 from tkinter import filedialog
 from core.config_manager import ConfigManager
-from core.firefox_cookies import get_firefox_status
+from core.firefox_cookies import get_firefox_status, export_cookies_to_file
+from utils.helpers import find_ffmpeg
 
 
 class SettingsTab:
@@ -73,6 +75,37 @@ class SettingsTab:
         self.timeout_entry.insert(0, str(self.config_manager.get('socket_timeout', 30)))
         self.timeout_entry.pack(fill="x", padx=10, pady=(0, 10))
 
+        ctk.CTkLabel(main_frame, text="FFmpeg", font=("Arial", 16, "bold")).pack(anchor="w", pady=(10, 10))
+
+        ffmpeg_frame = ctk.CTkFrame(main_frame)
+        ffmpeg_frame.pack(fill="x", pady=(0, 20))
+
+        configured_ffmpeg = self.config_manager.get('ffmpeg_location', '')
+        ffmpeg_result = find_ffmpeg(configured_ffmpeg)
+        if ffmpeg_result is None:
+            ffmpeg_status_text, ffmpeg_status_color = "Найден (системный PATH)", "green"
+        elif ffmpeg_result:
+            ffmpeg_status_text, ffmpeg_status_color = f"Найден: {ffmpeg_result}", "green"
+        else:
+            ffmpeg_status_text, ffmpeg_status_color = "Не найден — метаданные, аудио и миниатюры не будут работать", "red"
+
+        self.ffmpeg_status_label = ctk.CTkLabel(
+            ffmpeg_frame, text=ffmpeg_status_text,
+            font=("Arial", 11), text_color=ffmpeg_status_color
+        )
+        self.ffmpeg_status_label.pack(anchor="w", padx=10, pady=(10, 5))
+
+        ctk.CTkLabel(ffmpeg_frame, text="Путь к ffmpeg (папка или файл):", font=("Arial", 12)).pack(anchor="w", padx=10, pady=(5, 2))
+
+        ffmpeg_path_frame = ctk.CTkFrame(ffmpeg_frame, fg_color="transparent")
+        ffmpeg_path_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        self.ffmpeg_path_entry = ctk.CTkEntry(ffmpeg_path_frame, placeholder_text="Оставьте пустым для автоопределения")
+        self.ffmpeg_path_entry.insert(0, configured_ffmpeg)
+        self.ffmpeg_path_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+        ctk.CTkButton(ffmpeg_path_frame, text="Обзор", command=self.browse_ffmpeg, width=80).pack(side="right")
+
         ctk.CTkLabel(main_frame, text="Firefox Cookies", font=("Arial", 16, "bold")).pack(anchor="w", pady=(10, 10))
 
         cookies_frame = ctk.CTkFrame(main_frame)
@@ -90,10 +123,59 @@ class SettingsTab:
                     font=("Arial", 10), text_color="gray").pack(anchor="w", padx=10, pady=2)
 
         ctk.CTkLabel(cookies_frame, text=f"Путь к cookies: {firefox_status['cookies_path']}",
-                    font=("Arial", 10), text_color="gray").pack(anchor="w", padx=10, pady=(2, 10))
+                    font=("Arial", 10), text_color="gray").pack(anchor="w", padx=10, pady=(2, 5))
+
+        export_row = ctk.CTkFrame(cookies_frame, fg_color="transparent")
+        export_row.pack(fill="x", padx=10, pady=(0, 10))
+
+        self.export_btn = ctk.CTkButton(
+            export_row,
+            text="Экспортировать куки в файл",
+            command=self.export_cookies,
+            state="normal" if firefox_status['available'] else "disabled",
+            width=220,
+        )
+        self.export_btn.pack(side="left", padx=(0, 10))
+
+        self.export_status_label = ctk.CTkLabel(export_row, text="", font=("Arial", 11))
+        self.export_status_label.pack(side="left", fill="x", expand=True)
 
         save_btn = ctk.CTkButton(main_frame, text="Сохранить настройки", command=self.save_settings, height=40)
         save_btn.pack(fill="x", pady=(10, 0))
+
+    def export_cookies(self):
+        saved_path = self.config_manager.get('last_cookies_file', '')
+        if saved_path:
+            output_path = saved_path
+        else:
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            output_path = os.path.join(root_dir, 'cookies.txt')
+
+        self.export_btn.configure(state="disabled", text="Экспорт...")
+        self.export_status_label.configure(text="", text_color="gray")
+
+        def do_export():
+            success, message = export_cookies_to_file(output_path)
+            if success and not self.config_manager.get('last_cookies_file'):
+                self.config_manager.set('last_cookies_file', output_path)
+            self.parent.after(0, lambda: self._on_export_done(success, message))
+
+        import threading
+        threading.Thread(target=do_export, daemon=True).start()
+
+    def _on_export_done(self, success: bool, message: str):
+        self.export_btn.configure(state="normal", text="Экспортировать куки в файл")
+        color = "green" if success else "red"
+        self.export_status_label.configure(text=message, text_color=color)
+
+    def browse_ffmpeg(self):
+        path = filedialog.askopenfilename(
+            title="Выберите ffmpeg",
+            filetypes=[("ffmpeg", "ffmpeg ffmpeg.exe"), ("Все файлы", "*.*")]
+        )
+        if path:
+            self.ffmpeg_path_entry.delete(0, 'end')
+            self.ffmpeg_path_entry.insert(0, path)
 
     def browse_download_folder(self):
         folder = filedialog.askdirectory()
@@ -109,6 +191,15 @@ class SettingsTab:
         self.config_manager.set('filename_template', self.filename_template_entry.get())
         self.config_manager.set('theme', self.theme_combo.get())
         self.config_manager.set('max_concurrent_downloads', int(self.concurrent_slider.get()))
+        self.config_manager.set('ffmpeg_location', self.ffmpeg_path_entry.get().strip())
+
+        ffmpeg_result = find_ffmpeg(self.ffmpeg_path_entry.get().strip())
+        if ffmpeg_result is None:
+            self.ffmpeg_status_label.configure(text="Найден (системный PATH)", text_color="green")
+        elif ffmpeg_result:
+            self.ffmpeg_status_label.configure(text=f"Найден: {ffmpeg_result}", text_color="green")
+        else:
+            self.ffmpeg_status_label.configure(text="Не найден — метаданные, аудио и миниатюры не будут работать", text_color="red")
 
         try:
             self.config_manager.set('max_retries', int(self.retries_entry.get()))
