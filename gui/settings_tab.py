@@ -221,8 +221,15 @@ class SettingsTab:
                 import time
                 for _ in range(60):
                     time.sleep(interval)
-                    token = client.poll_device_token(device_code)
-                    if token:
+                    result = client.poll_device_token(device_code)
+                    if result:
+                        # Extract just the access_token string
+                        if isinstance(result, dict):
+                            token = result.get('access_token', '')
+                        elif hasattr(result, 'access_token'):
+                            token = result.access_token
+                        else:
+                            token = str(result)
                         self.config_manager.set('yandex_token', token)
                         self.parent.after(0, lambda: self._on_auth_success(token))
                         return

@@ -12,13 +12,30 @@ class YandexDownloader:
         self.progress_callback = progress_callback
         self._client: Optional[Client] = None
 
+    @staticmethod
+    def _extract_token(raw: str) -> str:
+        """Extract bare access_token from stored value (handles dict-as-string)."""
+        raw = raw.strip()
+        if raw.startswith('{'):
+            import ast, re
+            try:
+                d = ast.literal_eval(raw)
+                return d.get('access_token', raw)
+            except Exception:
+                m = re.search(r"'access_token'\s*:\s*'([^']+)'", raw)
+                if m:
+                    return m.group(1)
+        return raw
+
     def _get_client(self) -> Client:
-        if self._client is None or self._client.token != self.token:
-            self._client = Client(self.token).init()
+        token = self._extract_token(self.token)
+        if self._client is None or self._client.token != token:
+            self._client = Client(token).init()
         return self._client
 
     def update_token(self, token: str):
-        if token != self.token:
+        clean = self._extract_token(token)
+        if clean != self._extract_token(self.token):
             self.token = token
             self._client = None
 
@@ -145,16 +162,25 @@ class YandexDownloader:
         if not download_infos:
             raise Exception(f"Нет доступных форматов для трека: {title}")
 
+        # Exclude previews (30-second clips)
+        full_infos = [d for d in download_infos if not getattr(d, 'preview', False)]
+        if not full_infos:
+            # All options are previews — subscription might not cover this track
+            raise Exception(
+                f"Доступны только превью (30 сек) для «{title}». "
+                "Проверьте, что токен получен для аккаунта с активным Яндекс Плюс."
+            )
+
         # Filter by codec, sort by bitrate descending
         codec_options = sorted(
-            [d for d in download_infos if d.codec == codec],
+            [d for d in full_infos if d.codec == codec],
             key=lambda d: d.bitrate_in_kbps,
             reverse=True
         )
 
         if not codec_options:
             # Fallback: any codec, best bitrate
-            codec_options = sorted(download_infos, key=lambda d: d.bitrate_in_kbps, reverse=True)
+            codec_options = sorted(full_infos, key=lambda d: d.bitrate_in_kbps, reverse=True)
             codec = codec_options[0].codec
 
         # Pick closest bitrate to requested
