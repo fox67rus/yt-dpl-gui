@@ -1,4 +1,6 @@
 import os
+import threading
+import webbrowser
 import customtkinter as ctk
 from tkinter import filedialog
 from core.config_manager import ConfigManager
@@ -140,6 +142,35 @@ class SettingsTab:
         self.export_status_label = ctk.CTkLabel(export_row, text="", font=("Arial", 11))
         self.export_status_label.pack(side="left", fill="x", expand=True)
 
+        ctk.CTkLabel(main_frame, text="Яндекс Музыка", font=("Arial", 16, "bold")).pack(anchor="w", pady=(10, 10))
+
+        yandex_frame = ctk.CTkFrame(main_frame)
+        yandex_frame.pack(fill="x", pady=(0, 20))
+
+        # Login via device auth
+        login_row = ctk.CTkFrame(yandex_frame, fg_color="transparent")
+        login_row.pack(fill="x", padx=10, pady=(10, 5))
+
+        self.yandex_login_btn = ctk.CTkButton(
+            login_row, text="Войти через Яндекс", command=self._start_device_auth, width=200
+        )
+        self.yandex_login_btn.pack(side="left", padx=(0, 10))
+
+        self.yandex_auth_status = ctk.CTkLabel(login_row, text="", font=("Arial", 11))
+        self.yandex_auth_status.pack(side="left", fill="x", expand=True)
+
+        # Manual token entry
+        ctk.CTkLabel(yandex_frame, text="Или введите токен вручную:", font=("Arial", 12)).pack(anchor="w", padx=10, pady=(5, 2))
+
+        token_row = ctk.CTkFrame(yandex_frame, fg_color="transparent")
+        token_row.pack(fill="x", padx=10, pady=(0, 10))
+
+        self.yandex_token_entry = ctk.CTkEntry(token_row, placeholder_text="y0_Ag...", show="*")
+        self.yandex_token_entry.insert(0, self.config_manager.get('yandex_token', ''))
+        self.yandex_token_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+        ctk.CTkButton(token_row, text="Показать", command=self._toggle_token_visibility, width=90).pack(side="right")
+
         save_btn = ctk.CTkButton(main_frame, text="Сохранить настройки", command=self.save_settings, height=40)
         save_btn.pack(fill="x", pady=(10, 0))
 
@@ -168,6 +199,90 @@ class SettingsTab:
         color = "green" if success else "red"
         self.export_status_label.configure(text=message, text_color=color)
 
+    def _start_device_auth(self):
+        self.yandex_login_btn.configure(state="disabled", text="Подключение...")
+        self.yandex_auth_status.configure(text="", text_color="gray")
+
+        def worker():
+            try:
+                from yandex_music import Client
+                client = Client()
+                code_resp = client.request_device_code()
+
+                url = code_resp.verification_url
+                user_code = code_resp.user_code
+                device_code = code_resp.device_code
+                interval = getattr(code_resp, 'interval', 5)
+
+                self.parent.after(0, lambda: self._show_device_code(user_code, url))
+                self.parent.after(0, lambda: self.yandex_login_btn.configure(text="Ожидание подтверждения..."))
+                webbrowser.open(url)
+
+                import time
+                for _ in range(60):
+                    time.sleep(interval)
+                    token = client.poll_device_token(device_code)
+                    if token:
+                        self.config_manager.set('yandex_token', token)
+                        self.parent.after(0, lambda: self._on_auth_success(token))
+                        return
+
+                self.parent.after(0, lambda: self._on_auth_error("Время ожидания истекло"))
+            except Exception as e:
+                self.parent.after(0, lambda: self._on_auth_error(str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_device_code(self, user_code: str, url: str):
+        dialog = ctk.CTkToplevel(self.parent)
+        dialog.title("Авторизация Яндекс Музыки")
+        dialog.geometry("420x220")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        dialog.focus()
+
+        ctk.CTkLabel(dialog, text="Введите этот код на открывшейся странице:", font=("Arial", 13)).pack(pady=(20, 10))
+
+        code_label = ctk.CTkLabel(dialog, text=user_code, font=("Arial", 36, "bold"), text_color="#FFD700")
+        code_label.pack(pady=5)
+
+        def copy_code():
+            dialog.clipboard_clear()
+            dialog.clipboard_append(user_code)
+            copy_btn.configure(text="Скопировано!")
+            dialog.after(2000, lambda: copy_btn.configure(text="Скопировать код"))
+
+        copy_btn = ctk.CTkButton(dialog, text="Скопировать код", command=copy_code, width=200)
+        copy_btn.pack(pady=(10, 5))
+
+        ctk.CTkLabel(dialog, text="После подтверждения это окно закроется автоматически.",
+                     font=("Arial", 11), text_color="gray").pack(pady=(0, 5))
+
+        ctk.CTkButton(dialog, text="Открыть страницу снова",
+                      command=lambda: webbrowser.open(url), width=200).pack(pady=5)
+
+        self._auth_dialog = dialog
+
+    def _on_auth_success(self, token: str):
+        if hasattr(self, '_auth_dialog') and self._auth_dialog.winfo_exists():
+            self._auth_dialog.destroy()
+        self.yandex_login_btn.configure(state="normal", text="Войти через Яндекс")
+        self.yandex_auth_status.configure(text="Авторизован!", text_color="green")
+        self.yandex_token_entry.delete(0, 'end')
+        self.yandex_token_entry.insert(0, token)
+        if self.on_settings_changed:
+            self.on_settings_changed()
+
+    def _on_auth_error(self, msg: str):
+        if hasattr(self, '_auth_dialog') and self._auth_dialog.winfo_exists():
+            self._auth_dialog.destroy()
+        self.yandex_login_btn.configure(state="normal", text="Войти через Яндекс")
+        self.yandex_auth_status.configure(text=f"Ошибка: {msg}", text_color="red")
+
+    def _toggle_token_visibility(self):
+        current = self.yandex_token_entry.cget("show")
+        self.yandex_token_entry.configure(show="" if current == "*" else "*")
+
     def browse_ffmpeg(self):
         path = filedialog.askopenfilename(
             title="Выберите ffmpeg",
@@ -192,6 +307,7 @@ class SettingsTab:
         self.config_manager.set('theme', self.theme_combo.get())
         self.config_manager.set('max_concurrent_downloads', int(self.concurrent_slider.get()))
         self.config_manager.set('ffmpeg_location', self.ffmpeg_path_entry.get().strip())
+        self.config_manager.set('yandex_token', self.yandex_token_entry.get().strip())
 
         ffmpeg_result = find_ffmpeg(self.ffmpeg_path_entry.get().strip())
         if ffmpeg_result is None:

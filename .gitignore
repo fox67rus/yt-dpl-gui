@@ -36,3 +36,6 @@ ffplay
 
 # Cookies
 cookies.txt
+
+# User config (auto-generated on first run, may contain tokens)
+config.json

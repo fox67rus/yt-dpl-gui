@@ -5,3 +5,6 @@ requests>=2.28.0
 
 # Downloader (install with extras for YouTube EJS: pip install "yt-dlp[default]")
 yt-dlp>=2024.0.0
+
+# Yandex Music
+yandex-music>=3.0.0

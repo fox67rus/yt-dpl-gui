@@ -3,6 +3,7 @@ from gui.download_tab import DownloadTab
 from gui.queue_tab import QueueTab
 from gui.settings_tab import SettingsTab
 from gui.profiles_tab import ProfilesTab
+from gui.yandex_tab import YandexTab
 from core.config_manager import ConfigManager
 from core.queue_manager import DownloadQueue
 
@@ -28,6 +29,7 @@ class MainWindow(ctk.CTk):
         self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.download_tab_frame = self.tabview.add("Загрузка")
+        self.yandex_tab_frame = self.tabview.add("Яндекс Музыка")
         self.queue_tab_frame = self.tabview.add("Очередь")
         self.settings_tab_frame = self.tabview.add("Настройки")
         self.profiles_tab_frame = self.tabview.add("Профили")
@@ -36,6 +38,11 @@ class MainWindow(ctk.CTk):
             self.download_tab_frame,
             self.config_manager,
             self.download_queue
+        )
+
+        self.yandex_tab = YandexTab(
+            self.yandex_tab_frame,
+            self.config_manager,
         )
 
         self.queue_tab = QueueTab(
@@ -66,6 +73,8 @@ class MainWindow(ctk.CTk):
 
         max_concurrent = self.config_manager.get('max_concurrent_downloads', 3)
         self.download_queue.set_max_concurrent(max_concurrent)
+
+        self.yandex_tab.refresh_token()
 
     def on_profiles_changed(self):
         """Обработчик изменения профилей"""

@@ -30,6 +30,8 @@ class ConfigManager:
             "filename_template": "%(title)s.%(ext)s",
             "max_retries": 3,
             "socket_timeout": 30,
+            "yandex_token": "",
+            "yandex_download_path": "./downloads",
             "profiles": {
                 "default": {
                     "name": "По умолчанию",
